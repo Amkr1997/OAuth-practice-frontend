@@ -1,75 +1,132 @@
 import { useEffect, useState } from "react";
 import Cookies from "js-cookie";
-import axios from "axios";
-import { useDispatch, useSelector } from "react-redux";
-import { fetchAuthor, postAuthorDetails } from "../features/authorSlice";
+import { useNavigate } from "react-router-dom";
+import {
+  useAddAuthorMutation,
+  useGetAllTodosQuery,
+  useGetAuthorQuery,
+  useGetInfoQuery,
+  useGetProfileQuery,
+} from "../features/apiSlice";
+import Navbar from "../components/Navbar";
 
 const Profile = () => {
   const [userData, setUserData] = useState(null);
   const googleAccessToken = Cookies.get("googleTodo_access_token") || "";
-  const { author } = useSelector((state) => state.author);
-  const dispatch = useDispatch();
+  const { data: allTodos, isLoading: todoLoading } = useGetAllTodosQuery();
+  const { data: profileInfo, isLoading } = useGetInfoQuery(undefined, {
+    skip: googleAccessToken === "",
+  });
+  const { data: profileData } = useGetProfileQuery(undefined, {
+    skip: googleAccessToken !== "",
+  });
+  const { data: authorData, refetch: refetchUserData } = useGetAuthorQuery(
+    userData?.id,
+    { skip: !userData?.id }
+  );
+  const [addAuthor] = useAddAuthorMutation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (profileInfo) {
+      setUserData(profileInfo);
+    } else if (profileData) {
+      setUserData(profileData?.user);
+    }
+  }, [profileInfo, profileData]);
 
   useEffect(() => {
     (async () => {
-      if (googleAccessToken) {
-        try {
-          //Retrive user info
-          const userResponse = await axios.get(
-            `https://www.googleapis.com/oauth2/v2/userinfo`,
-            {
-              headers: {
-                Authorization: `Bearer ${googleAccessToken}`,
-              },
-            }
-          );
-
-          setUserData(userResponse?.data);
-        } catch (error) {
-          window.location.href = "/";
-          console.log(error);
-          console.log(JSON.stringify(error, undefined, 2));
-        }
-      } else if (location.pathname.includes("v2")) {
-        try {
-          const response = await axios.get(
-            `${import.meta.env.VITE_SERVER_URL}/user/profile/google`
-          );
-
-          setUserData(response?.data?.user);
-        } catch (error) {
-          if (error.status === 403 || error.status === 500) {
-            window.location.href = "/";
+      try {
+        if (userData && authorData) {
+          if (authorData?.[0]?.id !== userData?.id) {
+            await addAuthor({
+              name: userData.name,
+              email: userData.email,
+              profilePic: userData.picture,
+              id: userData.id,
+            });
           }
+
+          refetchUserData();
         }
-      } else {
-        window.location.href = "/";
+      } catch (error) {
+        console.log(error);
       }
     })();
-  }, [googleAccessToken]);
+  }, [authorData, userData]);
 
-  useEffect(() => {
-    if (userData) {
-      if (author.length === 0) {
-        dispatch(
-          postAuthorDetails({
-            name: userData.name,
-            email: userData.email,
-            profilePic: userData.picture,
-            id: userData.id,
-          })
-        );
-      }
-    }
-  }, [userData]);
+  const handleLogout = () => {
+    Cookies.remove("googleTodo_access_token");
+    navigate("/");
+  };
 
-  useEffect(() => {
-    if (userData) {
-      dispatch(fetchAuthor(userData?.id));
-    }
-  }, [userData]);
+  const authorTodos = allTodos?.todos?.filter(
+    (todos) => todos.author === authorData?.[0]?._id
+  );
 
-  return <></>;
+  return (
+    <>
+      <Navbar />
+      <main className="container text-center mt-4">
+        <h1 className="fw-medium">Todo Author Data</h1>
+        {!isLoading ? (
+          <section className="mt-4">
+            <div className="card w-50 mx-auto border border-3">
+              <div className="d-flex align-items-center justify-content-center gap-4 py-4">
+                <img
+                  src={authorData?.[0]?.profilePic}
+                  alt="profile-image"
+                  className="rounded-circle"
+                />
+                <button
+                  className="btn btn-danger btn-sm mt-4"
+                  onClick={handleLogout}
+                >
+                  Logout
+                </button>
+              </div>
+              <h4>
+                Name:{" "}
+                <span className="text-danger">
+                  {authorData?.[0]?.name || "Log in"}
+                </span>
+              </h4>
+              <h4>
+                Email:{" "}
+                <span className="text-danger">
+                  {authorData?.[0]?.email || "Log in"}
+                </span>
+              </h4>
+            </div>
+
+            <div className="my-2 w-50 mx-auto">
+              <h2 className="py-3">Author Todos</h2>
+
+              <ul className="list-group">
+                {!todoLoading ? (
+                  authorTodos?.map((todo) => {
+                    return (
+                      <li
+                        className="list-group-item fs-4 text-capitalize fw-medium"
+                        key={todo._id}
+                      >
+                        {todo.todo}
+                      </li>
+                    );
+                  })
+                ) : (
+                  <h3 className="text-center mt-4">Loading...</h3>
+                )}
+              </ul>
+            </div>
+          </section>
+        ) : (
+          <h2 className="text-center mt-4">Loading...</h2>
+        )}
+      </main>
+    </>
+  );
 };
 
 export default Profile;
